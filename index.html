@@ -1,0 +1,1161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HUNTED">
+<meta name="theme-color" content="#05040b">
+<title>HUNTED</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/mqtt@5.16.1/dist/mqtt.min.js"></script>
+<style>
+:root{
+  --bg:#05040b; --bg2:#0e0a22;
+  --panel:rgba(22,17,46,.74); --panel2:rgba(36,28,74,.55);
+  --line:rgba(170,150,255,.16); --line2:rgba(170,150,255,.3);
+  --text:#f3f1ff; --dim:#9d98c8; --dim2:#6c6896;
+  --run:#00f0ff; --hunt:#ff2a6d; --acid:#d4ff3a; --violet:#9d5cff; --gold:#ffc23d; --ok:#3dffa2;
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Rajdhani,system-ui,-apple-system,sans-serif;font-weight:600;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+input{-webkit-user-select:text;user-select:text}
+button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.hidden,[hidden]{display:none!important}
+
+/* ===== animated backdrop ===== */
+.bgfx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.bgfx .blob{position:absolute;width:70vmax;height:70vmax;border-radius:50%;filter:blur(70px);opacity:.38;animation:drift 18s ease-in-out infinite alternate}
+.bgfx .b1{background:radial-gradient(circle,var(--violet),transparent 65%);left:-30vmax;top:-25vmax}
+.bgfx .b2{background:radial-gradient(circle,var(--hunt),transparent 65%);right:-35vmax;top:20vh;animation-delay:-6s;opacity:.25}
+.bgfx .b3{background:radial-gradient(circle,var(--run),transparent 65%);left:-20vmax;bottom:-40vmax;animation-delay:-12s;opacity:.25}
+@keyframes drift{to{transform:translate(8vmax,6vmax) scale(1.15)}}
+.bgfx .grid{position:absolute;left:-50%;right:-50%;bottom:-10%;height:60%;
+  background-image:linear-gradient(rgba(157,92,255,.35) 1px,transparent 1px),linear-gradient(90deg,rgba(157,92,255,.35) 1px,transparent 1px);
+  background-size:44px 44px;transform:perspective(380px) rotateX(62deg);transform-origin:bottom;
+  mask-image:linear-gradient(to top,#000 0%,transparent 85%);-webkit-mask-image:linear-gradient(to top,#000 0%,transparent 85%);
+  animation:gridmove 3s linear infinite}
+@keyframes gridmove{to{background-position:0 44px}}
+
+/* ===== screens ===== */
+.screen{position:fixed;inset:0;z-index:1;display:flex;flex-direction:column;opacity:0;pointer-events:none;transform:translateY(12px) scale(.99);transition:opacity .35s,transform .35s}
+.screen.active{opacity:1;pointer-events:auto;transform:none}
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 16px 24px}
+.bar{display:flex;align-items:center;gap:10px;padding:calc(var(--safe-t) + 10px) 16px 10px}
+.bar-title{flex:1;font:800 15px Orbitron;letter-spacing:.22em;text-align:center}
+.icon-btn{width:40px;height:40px;border-radius:12px;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;font-size:18px}
+.actions{padding:12px 16px calc(var(--safe-b) + 14px);background:linear-gradient(to top,var(--bg) 60%,transparent);display:flex;gap:10px}
+.actions .btn{flex:1}
+
+/* ===== buttons / inputs ===== */
+.btn{position:relative;height:56px;border-radius:16px;font:800 15px Orbitron;letter-spacing:.12em;text-transform:uppercase;
+  background:var(--panel2);border:1px solid var(--line2);color:var(--text);transition:transform .12s,filter .2s;display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.4;filter:grayscale(.6)}
+.btn.primary{border:0;background:linear-gradient(110deg,var(--hunt),var(--violet) 55%,var(--run));background-size:200% 100%;animation:shimmer 4s linear infinite;
+  box-shadow:0 0 24px rgba(157,92,255,.55),inset 0 1px 0 rgba(255,255,255,.35);text-shadow:0 1px 6px rgba(0,0,0,.35)}
+@keyframes shimmer{to{background-position:-200% 0}}
+.btn.go{border:0;background:linear-gradient(110deg,#11d97f,var(--acid));color:#06140a;box-shadow:0 0 26px rgba(212,255,58,.5)}
+.btn.danger{border:1px solid rgba(255,42,109,.5);color:#ffd2df;background:rgba(255,42,109,.14)}
+.btn.ghost{background:transparent}
+.btn.small{height:42px;font-size:12px;border-radius:12px;width:auto;padding:0 18px}
+.lbl{font:700 11px Orbitron;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin-bottom:8px}
+.field{width:100%;height:56px;border-radius:16px;background:rgba(5,4,12,.6);border:1px solid var(--line2);color:var(--text);
+  font:700 20px Rajdhani;padding:0 18px;outline:none;transition:border-color .2s,box-shadow .2s}
+.field:focus{border-color:var(--run);box-shadow:0 0 0 3px rgba(0,240,255,.18),0 0 22px rgba(0,240,255,.25)}
+.err{color:#ff7aa2;min-height:20px;margin:10px 0 0;font-size:15px;text-align:center}
+
+/* ===== home ===== */
+.home-wrap{flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(var(--safe-t) + 20px) 18px calc(var(--safe-b) + 20px);gap:22px}
+.logo-wrap{position:relative;text-align:center;padding-top:40px}
+.radar{position:absolute;left:50%;top:50%;width:230px;height:230px;margin:-128px 0 0 -115px;border-radius:50%;
+  background:repeating-radial-gradient(circle,transparent 0 28px,rgba(0,240,255,.14) 29px 30px);border:1px solid rgba(0,240,255,.25);z-index:-1;overflow:hidden}
+.radar .sweep{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,rgba(0,240,255,.45),transparent 70deg);animation:spin 3.2s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.blip{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--hunt);box-shadow:0 0 12px var(--hunt);animation:blip 3.2s infinite}
+.b1{left:30%;top:28%}.b2{left:70%;top:60%;animation-delay:-1.1s;background:var(--run);box-shadow:0 0 12px var(--run)}.b3{left:40%;top:75%;animation-delay:-2.1s}
+@keyframes blip{0%,100%{opacity:0;transform:scale(.4)}12%{opacity:1;transform:scale(1.3)}50%{opacity:.25;transform:scale(1)}}
+.logo{position:relative;margin:0;font:900 56px/1 Orbitron;letter-spacing:.06em;
+  background:linear-gradient(100deg,#fff 10%,var(--run) 35%,var(--violet) 60%,var(--hunt) 90%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 18px rgba(157,92,255,.7));animation:glitch 5s infinite}
+@keyframes glitch{0%,92%,100%{transform:none}93%{transform:translate(-3px,1px) skewX(-8deg)}95%{transform:translate(3px,-1px) skewX(6deg)}97%{transform:translate(-1px,0)}}
+.tag{margin:10px 0 0;color:var(--dim);font-size:15px;letter-spacing:.32em;text-transform:uppercase}
+.card{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:20px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:0 20px 60px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.06)}
+.card .btn{margin-top:14px}
+.or{display:flex;align-items:center;gap:12px;margin:20px 0 14px;color:var(--dim2);font-size:13px;letter-spacing:.2em;text-transform:uppercase}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line2)}
+.join-row{display:flex;gap:10px}
+.join-row .field{flex:1;text-transform:uppercase;letter-spacing:.5em;text-align:center;font:800 22px Orbitron;padding:0 0 0 .5em}
+.join-row .btn{margin:0;width:110px}
+.link{color:var(--run);font-size:16px;letter-spacing:.12em;text-transform:uppercase;padding:8px;text-shadow:0 0 12px rgba(0,240,255,.6)}
+
+/* ===== lobby ===== */
+.code-card{text-align:center;padding:20px;border-radius:24px;background:linear-gradient(140deg,rgba(157,92,255,.25),rgba(0,240,255,.08));border:1px solid var(--line2);position:relative;overflow:hidden}
+.code-card::after{content:"";position:absolute;inset:-50%;background:linear-gradient(115deg,transparent 45%,rgba(255,255,255,.12) 50%,transparent 55%);animation:sheen 4.5s infinite}
+@keyframes sheen{from{transform:translateX(-40%)}to{transform:translateX(40%)}}
+.code{display:flex;justify-content:center;gap:8px;margin:6px 0 16px}
+.code span{width:48px;height:60px;display:grid;place-items:center;border-radius:12px;background:rgba(5,4,12,.65);border:1px solid rgba(0,240,255,.4);
+  font:900 30px Orbitron;color:var(--run);text-shadow:0 0 14px var(--run);box-shadow:inset 0 0 18px rgba(0,240,255,.12)}
+.code-card .btn{margin:0 auto;position:relative;z-index:1}
+.sec{display:flex;justify-content:space-between;align-items:baseline;font:800 12px Orbitron;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin:24px 2px 10px}
+.sec span{font:600 14px Rajdhani;letter-spacing:.05em;color:var(--dim2);text-transform:none}
+.players{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pl{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:16px;background:var(--panel);border:1px solid var(--line);animation:popin .35s both}
+@keyframes popin{from{opacity:0;transform:translateY(8px) scale(.97)}}
+.av{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font:900 16px Orbitron;color:#fff;
+  background:linear-gradient(135deg,hsl(var(--h) 95% 58%),hsl(calc(var(--h) + 60) 95% 45%));box-shadow:0 0 14px hsla(var(--h),95%,58%,.5)}
+.pn{flex:1;font-size:19px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.tg{font:800 9px Orbitron;letter-spacing:.14em;padding:3px 6px;border-radius:6px;font-style:normal}
+.tg.you{background:rgba(0,240,255,.15);color:var(--run)}
+.tg.host{background:rgba(255,194,61,.16);color:var(--gold)}
+.tg.wait{background:rgba(255,255,255,.08);color:var(--dim)}
+.gpsd{font:800 9px Orbitron;letter-spacing:.12em;color:var(--dim2);display:flex;align-items:center;gap:5px}
+.gpsd::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--dim2)}
+.gpsd.on{color:var(--ok)}.gpsd.on::before{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.kick{width:32px;height:32px;border-radius:10px;color:var(--dim);background:rgba(255,255,255,.05)}
+.gps-card{margin-top:14px;padding:14px 16px;border-radius:18px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;gap:12px;font-size:16px}
+.gps-card .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:20px;background:rgba(255,255,255,.06);flex:none}
+.gps-card.ok{border-color:rgba(61,255,162,.4)}.gps-card.ok .ic{background:rgba(61,255,162,.15)}
+.gps-card.bad{border-color:rgba(255,42,109,.5)}
+.gps-card .tx{flex:1;line-height:1.25}.gps-card small{display:block;color:var(--dim);font-size:13px;font-weight:500}
+.settings{display:flex;flex-direction:column;gap:8px}
+.set{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line)}
+.set .si{font-size:20px;width:30px;text-align:center}
+.set .sl{flex:1;font-size:16px;line-height:1.15}.set .sl small{display:block;color:var(--dim2);font-size:12px;font-weight:500}
+.step{display:flex;align-items:center;gap:6px}
+.step button{width:36px;height:36px;border-radius:11px;background:rgba(157,92,255,.18);border:1px solid rgba(157,92,255,.4);font:800 20px Orbitron;color:#fff}
+.step button:active{background:rgba(157,92,255,.4)}
+.step button:disabled{opacity:.25}
+.step .v{min-width:66px;text-align:center;font:800 16px Orbitron;color:var(--acid);text-shadow:0 0 10px rgba(212,255,58,.45)}
+.step .v small{display:block;font:600 11px Rajdhani;color:var(--dim);text-shadow:none;letter-spacing:.06em}
+.tog{width:56px;height:32px;border-radius:999px;background:rgba(255,255,255,.1);position:relative;transition:background .2s}
+.tog::after{content:"";position:absolute;left:4px;top:4px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .2s}
+.tog.on{background:linear-gradient(90deg,var(--violet),var(--run));box-shadow:0 0 14px rgba(0,240,255,.4)}
+.tog.on::after{transform:translateX(24px)}
+.tog:disabled{opacity:.6}
+.wait-pill{flex:1;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--dim);background:var(--panel);border:1px dashed var(--line2);font-size:16px;letter-spacing:.06em}
+.spin{width:18px;height:18px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--run);animation:spin .8s linear infinite}
+
+/* connection pill */
+.conn{display:flex;align-items:center;gap:6px;font:800 9px Orbitron;letter-spacing:.14em;color:var(--dim);padding:6px 9px;border-radius:999px;background:var(--panel);border:1px solid var(--line);min-width:40px;justify-content:center}
+.conn::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold)}
+.conn.on::before{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.conn.off::before{background:var(--hunt);box-shadow:0 0 8px var(--hunt)}
+
+/* ===== roles ===== */
+.center{display:flex;flex-direction:column;align-items:center}
+.flip{width:min(300px,78vw);height:min(380px,58vh);perspective:1200px;margin:10px auto 22px;cursor:pointer}
+.flip-in{position:relative;width:100%;height:100%;transition:transform .9s cubic-bezier(.2,.9,.25,1.15);transform-style:preserve-3d}
+.flip.open .flip-in{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;border-radius:28px;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow:hidden}
+.front{background:linear-gradient(150deg,#1d1543,#0b0820);border:1px solid var(--line2);box-shadow:0 0 40px rgba(157,92,255,.35)}
+.front .q{font:900 110px Orbitron;color:transparent;-webkit-text-stroke:2px var(--violet);filter:drop-shadow(0 0 16px var(--violet));animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.07);opacity:.75}}
+.front p{font:800 13px Orbitron;letter-spacing:.24em;color:var(--dim);margin:18px 0 0}
+.back{transform:rotateY(180deg);--c:var(--run);background:radial-gradient(circle at 50% 30%,color-mix(in srgb,var(--c) 38%,transparent),#0a0718 70%);border:2px solid var(--c);box-shadow:0 0 50px color-mix(in srgb,var(--c) 60%,transparent)}
+.back.hunter{--c:var(--hunt)}
+.back .em{font-size:92px;filter:drop-shadow(0 0 22px var(--c))}
+.back .you{font:800 12px Orbitron;letter-spacing:.3em;color:var(--dim);margin-top:10px}
+.back h2{margin:6px 0 10px;font:900 40px Orbitron;letter-spacing:.06em;color:var(--c);text-shadow:0 0 20px var(--c)}
+.back p{margin:0;font-size:17px;line-height:1.35;color:#e6e4ff}
+.teams{width:100%;max-width:440px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.team{border-radius:18px;padding:12px;background:var(--panel);border:1px solid var(--line)}
+.team h4{margin:0 0 8px;font:800 11px Orbitron;letter-spacing:.2em}
+.team.r h4{color:var(--run)}.team.h h4{color:var(--hunt)}
+.team div{font-size:17px;padding:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.team.hide div{filter:blur(6px)}
+
+/* ===== game ===== */
+#map{position:absolute;inset:0;background:#05040b;z-index:0}
+.leaflet-container{background:#05040b;font-family:Rajdhani}
+.leaflet-control-attribution{background:rgba(5,4,11,.6)!important;color:var(--dim2)!important;font-size:9px!important}
+.leaflet-control-attribution a{color:var(--dim)!important}
+.leaflet-bottom.leaflet-right{bottom:calc(var(--safe-b) + 74px)}
+.leaflet-tile-pane{filter:saturate(1.4) brightness(1.08)}
+.map-fx{position:absolute;inset:0;pointer-events:none;z-index:400;
+  background:radial-gradient(ellipse at center,transparent 55%,rgba(5,4,11,.85)),linear-gradient(rgba(157,92,255,.06),rgba(0,240,255,.04))}
+.hud{position:absolute;left:0;right:0;top:0;z-index:500;padding:calc(var(--safe-t) + 8px) 10px 0;pointer-events:none}
+.hud-top{display:flex;align-items:stretch;gap:8px}
+.hud-top>*{pointer-events:auto}
+.chip{border-radius:16px;background:rgba(10,8,24,.82);border:1px solid var(--line2);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:flex;flex-direction:column;justify-content:center;align-items:center;padding:6px 10px;min-width:72px}
+.role-chip{--c:var(--run);border-color:var(--c);box-shadow:0 0 16px color-mix(in srgb,var(--c) 45%,transparent)}
+.role-chip.hunter{--c:var(--hunt)}.role-chip.out{--c:#777}
+.role-chip .e{font-size:22px;line-height:1}
+.role-chip .n{font:800 9px Orbitron;letter-spacing:.14em;color:var(--c);margin-top:3px}
+.timer{flex:1}
+.t-lbl{font:800 9px Orbitron;letter-spacing:.18em;color:var(--dim)}
+.t-val{font:900 30px/1.05 Orbitron;letter-spacing:.04em;color:#fff;text-shadow:0 0 14px rgba(157,92,255,.9)}
+.t-val.urgent{color:var(--hunt);text-shadow:0 0 16px var(--hunt);animation:pulse .9s infinite}
+.ping-chip{position:relative;width:72px}
+.ping-chip svg{position:absolute;inset:4px;width:calc(100% - 8px);height:calc(100% - 8px);transform:rotate(-90deg)}
+.ping-chip circle{fill:none;stroke-width:3}
+.ping-chip .tr{stroke:rgba(255,255,255,.08)}
+.ping-chip .pr{stroke:var(--acid);stroke-linecap:round;filter:drop-shadow(0 0 4px var(--acid));transition:stroke-dashoffset .5s linear}
+.ping-chip .pt{position:relative;font:800 13px Orbitron;color:var(--acid)}
+.ping-chip .pl2{position:relative;font:800 7px Orbitron;letter-spacing:.14em;color:var(--dim)}
+.status-line{margin:8px auto 0;width:fit-content;max-width:100%;padding:6px 14px;border-radius:999px;background:rgba(10,8,24,.82);border:1px solid var(--line);font-size:14px;letter-spacing:.04em;color:var(--dim);text-align:center;pointer-events:auto}
+.status-line b{color:#fff}
+.status-line.warn{border-color:var(--gold);color:var(--gold)}
+.fabs{position:absolute;right:12px;bottom:calc(var(--safe-b) + 150px);z-index:500;display:flex;flex-direction:column;gap:10px}
+.fab{width:50px;height:50px;border-radius:16px;background:rgba(10,8,24,.85);border:1px solid var(--line2);display:grid;place-items:center;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.fab svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fab.on{border-color:var(--run);box-shadow:0 0 16px rgba(0,240,255,.5)}
+.fab.on svg{stroke:var(--run)}
+
+.drawer{position:absolute;left:0;right:0;bottom:0;z-index:600;background:rgba(10,8,24,.92);border-top:1px solid var(--line2);border-radius:24px 24px 0 0;
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);padding:8px 16px calc(var(--safe-b) + 12px);max-height:62vh;display:flex;flex-direction:column;transition:max-height .35s}
+.drawer .handle{width:44px;height:5px;border-radius:9px;background:var(--line2);margin:2px auto 8px}
+.drawer-sum{display:flex;align-items:center;gap:10px;min-height:46px}
+.dsum{flex:1;display:flex;gap:8px}
+.dsum .pill{flex:1;border-radius:14px;padding:6px 10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.dsum .pill b{display:block;font:900 20px Orbitron}
+.dsum .pill span{font:800 9px Orbitron;letter-spacing:.14em;color:var(--dim)}
+.dsum .r b{color:var(--run);text-shadow:0 0 10px var(--run)}.dsum .h b{color:var(--hunt);text-shadow:0 0 10px var(--hunt)}
+.drawer-body{overflow-y:auto;margin-top:8px;display:none}
+.drawer.open .drawer-body{display:block}
+.rrow{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line);font-size:17px}
+.rrow:last-child{border-bottom:0}
+.rrow .d{width:12px;height:12px;border-radius:50%;background:var(--c);box-shadow:0 0 10px var(--c);flex:none}
+.rrow.runner{--c:var(--run)}.rrow.hunter{--c:var(--hunt)}.rrow.out{--c:#555}
+.rrow.out .nm{text-decoration:line-through;color:var(--dim2)}
+.rrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrow .st{font-size:14px;color:var(--dim);text-align:right}
+.rrow .st b{color:var(--c)}
+.dh{font:800 10px Orbitron;letter-spacing:.2em;color:var(--dim);margin:12px 4px 2px}
+
+.lock{position:absolute;inset:0;z-index:550;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:30px;
+  background:radial-gradient(circle,rgba(255,42,109,.25),rgba(5,4,11,.88) 70%);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.lock .ring{width:200px;height:200px;border-radius:50%;display:grid;place-items:center;border:2px solid rgba(255,42,109,.6);box-shadow:0 0 40px rgba(255,42,109,.5),inset 0 0 40px rgba(255,42,109,.25);position:relative}
+.lock .ring::before{content:"";position:absolute;inset:-12px;border-radius:50%;border:2px dashed rgba(255,42,109,.45);animation:spin 12s linear infinite}
+.lock .ring b{font:900 44px Orbitron;color:#fff;text-shadow:0 0 18px var(--hunt)}
+.lock h3{margin:0;font:900 22px Orbitron;letter-spacing:.14em;color:var(--hunt);text-shadow:0 0 14px var(--hunt)}
+.lock p{margin:0;max-width:300px;color:#ffd7e3;font-size:17px;line-height:1.35}
+
+/* map markers */
+.mk{position:relative;width:0;height:0;--c:var(--run)}
+.mk.hunter{--c:var(--hunt)}
+.mk i{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:var(--c);border:3px solid #0a0818;box-shadow:0 0 14px var(--c),0 0 30px var(--c)}
+.mk.me i{left:-11px;top:-11px;width:22px;height:22px;border-color:#fff}
+.mk.me i::after,.mk.ping i::after,.mk.ping i::before{content:"";position:absolute;inset:-3px;border-radius:50%;border:2px solid var(--c);animation:ripple 2s ease-out infinite}
+.mk.ping i::before{animation-delay:-1s}
+@keyframes ripple{to{transform:scale(3.4);opacity:0}}
+.mk b{position:absolute;left:0;top:15px;transform:translateX(-50%);white-space:nowrap;font:700 13px Rajdhani;color:#fff;background:rgba(5,4,12,.85);
+  border:1px solid var(--c);padding:0 8px;border-radius:999px;box-shadow:0 0 10px color-mix(in srgb,var(--c) 50%,transparent)}
+.mk em{position:absolute;left:0;top:37px;transform:translateX(-50%);white-space:nowrap;font:600 11px Rajdhani;font-style:normal;color:var(--dim);background:rgba(5,4,12,.75);padding:0 6px;border-radius:999px}
+.mk.stale{opacity:.5}
+.mk.ping i{border-style:dashed}
+
+/* ===== flash alerts ===== */
+.flash{position:fixed;inset:0;z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;pointer-events:none;padding:30px;--c:var(--acid);opacity:0}
+.flash.show{animation:flashin 3.2s ease forwards}
+@keyframes flashin{0%{opacity:0;transform:scale(1.15)}8%{opacity:1;transform:scale(1)}82%{opacity:1}100%{opacity:0;transform:scale(.97)}}
+.flash::before{content:"";position:absolute;inset:0;background:radial-gradient(circle,color-mix(in srgb,var(--c) 40%,transparent),rgba(5,4,11,.9) 70%)}
+.flash .rp{position:absolute;left:50%;top:50%;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:3px solid var(--c);animation:ripple 1.6s ease-out infinite;opacity:.9}
+.flash .rp.r2{animation-delay:-.55s}.flash .rp.r3{animation-delay:-1.1s}
+.flash .fe{position:relative;font-size:76px;filter:drop-shadow(0 0 20px var(--c))}
+.flash .ft{position:relative;font:900 30px Orbitron;letter-spacing:.08em;color:var(--c);text-shadow:0 0 20px var(--c);margin-top:8px}
+.flash .fs{position:relative;font-size:20px;color:#fff;margin-top:8px;max-width:340px}
+.flash.ping{--c:var(--acid)}.flash.caught{--c:var(--hunt)}.flash.go{--c:var(--run)}.flash.warn{--c:var(--gold)}.flash.win{--c:var(--ok)}
+
+.toast{position:fixed;left:50%;top:calc(var(--safe-t) + 96px);z-index:1900;transform:translate(-50%,-20px);opacity:0;transition:.3s;
+  padding:10px 18px;border-radius:999px;background:rgba(10,8,24,.95);border:1px solid var(--gold);color:var(--gold);font-size:16px;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis;box-shadow:0 0 20px rgba(255,194,61,.3)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ===== sheet ===== */
+.sheet-bg{position:fixed;inset:0;z-index:1500;background:rgba(3,2,8,.6);opacity:0;pointer-events:none;transition:opacity .25s}
+.sheet-bg.show{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:1600;max-height:86vh;overflow-y:auto;background:linear-gradient(#17113a,#0b0820);border-top:1px solid var(--line2);
+  border-radius:26px 26px 0 0;padding:16px 18px calc(var(--safe-b) + 18px);transform:translateY(105%);transition:transform .32s cubic-bezier(.2,.9,.3,1)}
+.sheet.show{transform:none}
+.sheet h3{margin:4px 0 14px;font:900 18px Orbitron;letter-spacing:.14em}
+.sheet .btn{margin-top:10px}
+.rules{margin:0;padding:0;list-style:none;counter-reset:r}
+.rules li{counter-increment:r;position:relative;padding:8px 0 8px 40px;font-size:17px;line-height:1.35;font-weight:500;color:#e7e5ff}
+.rules li b{color:#fff;font-weight:700}
+.rules li::before{content:counter(r);position:absolute;left:0;top:8px;width:28px;height:28px;border-radius:9px;display:grid;place-items:center;font:800 13px Orbitron;background:rgba(157,92,255,.25);color:var(--violet)}
+.note{margin-top:14px;padding:12px 14px;border-radius:14px;background:rgba(255,194,61,.08);border:1px solid rgba(255,194,61,.3);color:#ffe7ae;font-size:15px;font-weight:500;line-height:1.35}
+.c-run{color:var(--run)}.c-hunt{color:var(--hunt)}.c-acid{color:var(--acid)}
+
+/* ===== over ===== */
+.over-wrap{flex:1;overflow-y:auto;padding:calc(var(--safe-t) + 30px) 18px 20px;text-align:center;--c:var(--run)}
+.over-wrap.hunters{--c:var(--hunt)}.over-wrap.ended{--c:var(--violet)}
+.trophy{font-size:96px;filter:drop-shadow(0 0 30px var(--c));animation:float 3s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-10px) rotate(-4deg)}}
+.over-wrap h1{margin:8px 0 6px;font:900 38px/1.05 Orbitron;color:var(--c);text-shadow:0 0 26px var(--c);letter-spacing:.04em}
+.over-wrap .sub{color:#e6e4ff;font-size:18px;margin-bottom:6px}
+.youres{display:inline-block;margin:10px 0 18px;padding:8px 18px;border-radius:999px;font:800 13px Orbitron;letter-spacing:.2em;border:1px solid var(--c);color:var(--c);box-shadow:0 0 18px color-mix(in srgb,var(--c) 40%,transparent)}
+.log{text-align:left;max-width:440px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:6px 14px}
+.confetti{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.confetti i{position:absolute;top:-20px;width:8px;height:14px;border-radius:2px;animation:fall linear infinite}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+</style>
+</head>
+<body>
+<div class="bgfx"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="grid"></div></div>
+
+<!-- HOME -->
+<section id="home" class="screen">
+  <div class="home-wrap">
+    <div class="logo-wrap">
+      <div class="radar"><div class="sweep"></div><span class="blip b1"></span><span class="blip b2"></span><span class="blip b3"></span></div>
+      <h1 class="logo">HUNTED</h1>
+      <p class="tag">Real-world manhunt</p>
+    </div>
+    <div class="card">
+      <div class="lbl">Your name</div>
+      <input id="nameIn" class="field" maxlength="16" placeholder="Enter your name" autocomplete="off" autocapitalize="words" spellcheck="false">
+      <button class="btn primary" id="createBtn">Create game</button>
+      <div class="or">or join with a code</div>
+      <div class="join-row">
+        <input id="codeIn" class="field" maxlength="5" placeholder="CODE" autocapitalize="characters" autocomplete="off" spellcheck="false">
+        <button class="btn" id="joinBtn">Join</button>
+      </div>
+      <button class="btn ghost" id="rejoinBtn" hidden></button>
+      <p class="err" id="homeErr"></p>
+    </div>
+    <button class="link" id="rulesBtn">How to play</button>
+  </div>
+</section>
+
+<!-- LOBBY -->
+<section id="lobby" class="screen">
+  <header class="bar"><button class="icon-btn" id="lobbyLeave" aria-label="Leave">✕</button><div class="bar-title">LOBBY</div><div class="conn" id="connL"></div></header>
+  <div class="scroll">
+    <div class="code-card"><div class="lbl">Game code</div><div class="code" id="codeShow"></div><button class="btn small" id="shareBtn">Invite friends</button></div>
+    <div class="gps-card" id="gpsCard"></div>
+    <div class="sec">Players <span id="pCount"></span></div>
+    <ul class="players" id="playerList"></ul>
+    <div class="sec">Game settings <span id="setHint"></span></div>
+    <div class="settings" id="settings"></div>
+  </div>
+  <footer class="actions" id="lobbyActions"></footer>
+</section>
+
+<!-- ROLES -->
+<section id="roles" class="screen">
+  <header class="bar"><button class="icon-btn" id="rolesLeave" aria-label="Leave">✕</button><div class="bar-title">YOUR ROLE</div><div class="conn" id="connR"></div></header>
+  <div class="scroll center">
+    <div class="flip" id="flip"><div class="flip-in">
+      <div class="face front"><div class="q">?</div><p>TAP TO REVEAL</p></div>
+      <div class="face back" id="roleBack"></div>
+    </div></div>
+    <div class="teams" id="teams"></div>
+  </div>
+  <footer class="actions" id="rolesActions"></footer>
+</section>
+
+<!-- GAME -->
+<section id="game" class="screen">
+  <div id="map"></div>
+  <div class="map-fx"></div>
+  <div class="hud">
+    <div class="hud-top">
+      <div class="chip role-chip" id="roleChip"></div>
+      <div class="chip timer"><div class="t-lbl" id="tLbl"></div><div class="t-val" id="tVal">--:--</div></div>
+      <div class="chip ping-chip" id="pingChip">
+        <svg viewBox="0 0 40 40"><circle class="tr" cx="20" cy="20" r="18"/><circle class="pr" id="pingRing" cx="20" cy="20" r="18" stroke-dasharray="113.1" stroke-dashoffset="0"/></svg>
+        <div class="pt" id="pingT">--</div><div class="pl2">PING</div>
+      </div>
+    </div>
+    <div class="status-line" id="statusLine"></div>
+  </div>
+  <div class="fabs">
+    <button class="fab on" id="fabMe" aria-label="Follow me"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+    <button class="fab" id="fabFit" aria-label="Show everyone"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button class="fab" id="fabMenu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+  <div class="lock" id="lockOverlay" hidden>
+    <h3>HUNTERS LOCKED</h3>
+    <div class="ring"><b id="lockT">0:00</b></div>
+    <p>The runners are escaping. Stay where you are until the timer hits zero — then run or bike after them.</p>
+  </div>
+  <div class="drawer" id="drawer">
+    <div class="handle"></div>
+    <div class="drawer-sum" id="drawerSum"></div>
+    <div class="drawer-body" id="roster"></div>
+  </div>
+</section>
+
+<!-- OVER -->
+<section id="over" class="screen">
+  <div class="confetti" id="confetti"></div>
+  <div class="over-wrap" id="overWrap"></div>
+  <footer class="actions" id="overActions"></footer>
+</section>
+
+<div class="flash" id="flash"></div>
+<div class="toast" id="toast"></div>
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet"></div>
+
+<script>
+'use strict';
+/* ============================================================
+   HUNTED — real-world manhunt over live GPS
+   Every phone connects to a public MQTT relay. All game messages are
+   end-to-end encrypted with a key made from the game code, and topics
+   are hashed, so only people with the code can read anything.
+   ============================================================ */
+const $ = (s, r = document) => r.querySelector(s);
+const QS = new URLSearchParams(location.search);
+const BROKERS = QS.get('broker') ? [QS.get('broker')] : ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+const MIN = QS.has('fast') ? 6000 : 60000;   // ?fast = 1 "minute" is 6 s, for testing
+const FT = 0.3048;
+const FRESH = 25000;     // a location older than this can't trigger a catch
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem('hunted.' + k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem('hunted.' + k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem('hunted.' + k); } catch (e) {} }
+};
+const rid = (n = 10, a = 'abcdefghijkmnpqrstuvwxyz23456789') => [...crypto.getRandomValues(new Uint8Array(n))].map(x => a[x % a.length]).join('');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hue = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+function fmt(ms) { ms = Math.max(0, ms); const s = Math.ceil(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); }
+function ago(ms) { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + 's ago' : Math.floor(s / 60) + 'm ' + (s % 60) + 's ago'; }
+function dist(a, b) { const R = 6371000, k = Math.PI / 180, dLa = (b.lat - a.lat) * k, dLo = (b.lng - a.lng) * k;
+  const s = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * k) * Math.cos(b.lat * k) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); }
+function fmtDist(m) { const ft = m / FT; return ft < 1000 ? Math.round(ft) + ' ft' : (m / 1609.34).toFixed(1) + ' mi'; }
+function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+let myId = store.get('id'); if (!myId) { myId = rid(12); store.set('id', myId); }
+
+/* ---------------- crypto ---------------- */
+const te = new TextEncoder(), td = new TextDecoder();
+async function deriveRoom(code) {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', te.encode('hunted-room|' + code)));
+  const topic = 'hunted/v1/' + [...h.slice(0, 10)].map(b => b.toString(16).padStart(2, '0')).join('');
+  const base = await crypto.subtle.importKey('raw', te.encode(code), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: te.encode('hunted-salt-v1'), iterations: 60000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return { topic, key };
+}
+async function seal(obj, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(JSON.stringify(obj))));
+  const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return out;
+}
+async function unseal(buf, key) {
+  const u = new Uint8Array(buf);
+  return JSON.parse(td.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, key, u.slice(12))));
+}
+
+/* ---------------- game data ---------------- */
+const G = { state: null, hellos: {}, locs: {}, rounds: {} };
+const S = { screen: null, round: 0, endFx: false, name: store.get('name') || '', pingSeen: -1, near: {}, lastPhase: null, revealKey: null, follow: true, fitted: false,
+  overSent: false, warned: {}, lastBeep: -1, joinedAt: 0 };
+const DEFAULTS = { headMin: 5, pingMin: 5, catchFt: 50, surviveMin: 30, hunters: null, reveal: true };
+const rnd = () => { const r = G.state ? G.state.round : 0; return G.rounds[r] || (G.rounds[r] = { caught: {}, ping: null }); };
+const P = () => (G.state ? G.state.players : {}) || {};
+const me = () => P()[myId];
+const isHost = () => !!G.state && G.state.hostId === myId;
+const myRole = () => (me() || {}).role;
+const idsOf = role => Object.keys(P()).filter(id => P()[id].role === role).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+const nameOf = id => (P()[id] || G.hellos[id] || {}).name || 'Unknown';
+const caughtOf = id => { const c = rnd().caught[id]; return c && (!G.state || !G.state.endAt || c.at <= G.state.endAt + 3000) ? c : null; };
+const aliveRunners = () => idsOf('runner').filter(id => !caughtOf(id));
+const fresh = (l, now = Date.now()) => l && now - l.t < FRESH;
+function hunterCount(s = G.state) { const n = Object.keys(s.players).length; const auto = Math.max(1, Math.round(n / 3));
+  const v = s.settings.hunters == null ? auto : s.settings.hunters; return Math.min(Math.max(1, v), Math.max(1, n - 1)); }
+
+function phase(now = Date.now()) {
+  const s = G.state; if (!s) return 'none';
+  if (s.phase !== 'live') return s.phase;
+  if (idsOf('runner').length && !aliveRunners().length) return 'over';
+  if (now >= s.endAt) return 'over';
+  return now < s.releaseAt ? 'head' : 'hunt';
+}
+function winner() {
+  const s = G.state; if (s.winner) return s.winner;
+  return aliveRunners().length ? 'runners' : 'hunters';
+}
+const pingMs = () => G.state.settings.pingMin * MIN;
+function pingCount(now = Date.now()) {
+  const s = G.state; if (!s || s.phase !== 'live' || now < s.releaseAt) return 0;
+  const t = Math.min(now, s.endAt - 1) - s.releaseAt;
+  return Math.floor(t / pingMs()) + (s.settings.reveal ? 1 : 0);
+}
+function pingTime(n) { const s = G.state; return s.releaseAt + (s.settings.reveal ? n - 1 : n) * pingMs(); }
+
+/* ---------------- network ---------------- */
+const Net = {
+  client: null, key: null, base: null, code: null,
+  async connect(code, wantState) {
+    const room = await deriveRoom(code);
+    this.key = room.key; this.base = room.topic; this.code = code;
+    const saved = store.get('broker.' + code);
+    const order = saved != null && BROKERS[saved] ? [saved, ...BROKERS.map((_, i) => i).filter(i => i !== saved)] : BROKERS.map((_, i) => i);
+    for (const i of order) { if (await this.tryBroker(i, wantState)) { store.set('broker.' + code, i); return true; } }
+    return false;
+  },
+  tryBroker(i, wantState) {
+    return new Promise(resolve => {
+      let done = false, first = true;
+      const c = mqtt.connect(BROKERS[i], { clientId: 'hn_' + rid(10), clean: true, keepalive: 30, reconnectPeriod: 2500, connectTimeout: 8000 });
+      this.client = c;
+      const finish = ok => { if (done) return; done = true; clearTimeout(timer);
+        if (!ok) { this.client = null; try { c.end(true); } catch (e) {} } resolve(ok); };
+      const timer = setTimeout(() => finish(false), 10000);
+      this.waitState = wantState ? () => finish(true) : null;
+      c.on('connect', () => {
+        setConn('on');
+        if (!first) { Geo.publish(true); return; }
+        first = false;
+        c.subscribe(this.base + '/#', { qos: 1 }, err => { if (err) return finish(false); if (!wantState) finish(true); });
+      });
+      c.on('reconnect', () => setConn('wait'));
+      c.on('offline', () => setConn('off'));
+      c.on('close', () => { if (this.client === c) setConn('off'); });
+      c.on('error', () => {});
+      c.on('message', (topic, payload) => { if (this.client === c) this.onRaw(topic, payload); });
+    });
+  },
+  async onRaw(topic, payload) {
+    const sub = topic.slice(this.base.length + 1);
+    let d = null;
+    if (payload && payload.length) { try { d = await unseal(payload, this.key); } catch (e) { return; } }
+    handleMsg(sub, d);
+  },
+  async pub(sub, obj, retain = false, qos = 1) {
+    const c = this.client, base = this.base; if (!c) return;
+    const payload = obj == null ? '' : await seal(obj, this.key);
+    c.publish(base + '/' + sub, payload, { qos, retain });
+  },
+  end() { const c = this.client; this.client = null; if (c) try { c.end(false); } catch (e) {} setConn('off'); }
+};
+function setConn(st) {
+  for (const el of [$('#connL'), $('#connR')]) { el.className = 'conn ' + st; el.textContent = st === 'on' ? 'LIVE' : st === 'off' ? 'OFFLINE' : '…'; }
+  const sl = $('#statusLine'); if (sl) sl.dataset.conn = st;
+}
+
+function handleMsg(sub, d) {
+  const p = sub.split('/');
+  if (sub === 'state') {
+    if (!d) return;
+    if (G.state && d.gid === G.state.gid && d.rev <= G.state.rev) return;
+    G.state = d;
+    if (Net.waitState) { const f = Net.waitState; Net.waitState = null; f(); }
+    onState();
+  } else if (p[0] === 'hello') {
+    if (d) G.hellos[p[1]] = d; else delete G.hellos[p[1]];
+    if (isHost()) hostSync(p[1], !d);
+    if (S.screen === 'lobby') renderLobby();
+  } else if (p[0] === 'loc') {
+    const id = p[1];
+    if (!d) delete G.locs[id];
+    else if (id !== myId && (!G.locs[id] || d.t >= G.locs[id].t)) G.locs[id] = d;
+    onLocs();
+  } else if (p[0][0] === 'r') {
+    const round = +p[0].slice(1); if (!round) return;
+    const R = G.rounds[round] || (G.rounds[round] = { caught: {}, ping: null });
+    if (p[1] === 'caught' && d) {
+      const prev = R.caught[p[2]];
+      if (prev && prev.at <= d.at) return;
+      R.caught[p[2]] = d;
+      if (!prev && G.state && round === G.state.round && Date.now() - d.at < 90000) announceCatch(p[2], d);
+      renderGame();
+    } else if (p[1] === 'ping' && d) {
+      if (!R.ping || d.n > R.ping.n) { R.ping = d; updateMap(); renderGame(); }
+    }
+  }
+}
+
+/* ---------------- host logic ---------------- */
+function hostPub(fn) {
+  const s = JSON.parse(JSON.stringify(G.state)); fn(s); s.rev++;
+  G.state = s; Net.pub('state', s, true); onState();
+}
+function hostSync(id, gone) {
+  const s = G.state; if (!s || !isHost() || s.phase !== 'lobby' || id === myId) return;
+  if (gone) { if (s.players[id]) hostPub(x => { delete x.players[id]; }); return; }
+  const h = G.hellos[id]; if (!h || s.kicked[id]) return;
+  if (!s.players[id]) hostPub(x => { x.players[id] = { name: h.name, joinedAt: h.t || Date.now() }; });
+  else if (s.players[id].name !== h.name) hostPub(x => { x.players[id].name = h.name; });
+}
+function hostSyncAll() { for (const id of Object.keys(G.hellos)) hostSync(id, false); }
+
+/* ---------------- location ---------------- */
+const Geo = {
+  watch: null, last: null, lastPub: 0, status: 'off',
+  start() {
+    if (!window.isSecureContext) { this.status = 'insecure'; return renderLobby(); }
+    if (!('geolocation' in navigator)) { this.status = 'unsupported'; return renderLobby(); }
+    if (this.watch != null) return;
+    this.status = 'asking'; renderLobby();
+    this.watch = navigator.geolocation.watchPosition(p => {
+      this.status = 'ok';
+      this.last = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy || 0), ft: Date.now(), t: Date.now() };
+      G.locs[myId] = this.last;
+      this.publish(false); onLocs();
+      if (S.screen === 'lobby') renderLobby();
+    }, e => {
+      this.status = e.code === 1 ? 'denied' : 'error';
+      if (e.code === 1) { try { navigator.geolocation.clearWatch(this.watch); } catch (x) {} this.watch = null; }
+      renderLobby(); renderGame();
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
+  },
+  stop() { if (this.watch != null) try { navigator.geolocation.clearWatch(this.watch); } catch (e) {} this.watch = null; this.status = 'off'; },
+  publish(force) {
+    if (!this.last || !Net.client) return;
+    const now = Date.now(); if (!force && now - this.lastPub < 2000) return;
+    this.lastPub = now; this.last.t = now; G.locs[myId] = this.last;
+    Net.pub('loc/' + myId, { lat: +this.last.lat.toFixed(6), lng: +this.last.lng.toFixed(6), acc: this.last.acc, ft: this.last.ft, t: now }, true, 0);
+  }
+};
+setInterval(() => { if (document.visibilityState === 'visible') Geo.publish(true); }, 8000);
+
+/* ---------------- sound / haptics / wake ---------------- */
+const Sfx = {
+  ctx: null,
+  unlock() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; } }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  tone(f, dur, type = 'sine', vol = .25, at = 0, to = null) {
+    const c = this.ctx; if (!c) return; const t = c.currentTime + at;
+    const o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.setValueAtTime(f, t);
+    if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + .05);
+  },
+  ping() { this.tone(1400, .5, 'sine', .3, 0, 700); this.tone(1400, .5, 'sine', .22, .55, 700); },
+  caught() { for (let i = 0; i < 3; i++) { this.tone(880, .16, 'sawtooth', .2, i * .22); this.tone(587, .16, 'sawtooth', .16, i * .22 + .1); } },
+  go() { this.tone(330, .6, 'square', .14, 0, 990); this.tone(660, .6, 'triangle', .2, .05, 1320); },
+  tick() { this.tone(1000, .07, 'square', .1); },
+  warn() { this.tone(520, .2, 'triangle', .2); this.tone(520, .2, 'triangle', .2, .28); },
+  win() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, .35, 'triangle', .22, i * .14)); },
+  lose() { [392, 330, 262].forEach((f, i) => this.tone(f, .45, 'sawtooth', .14, i * .22)); }
+};
+for (const ev of ['pointerdown', 'touchend', 'click']) document.addEventListener(ev, () => Sfx.unlock(), { passive: true });
+const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
+const Wake = {
+  lock: null,
+  async on() { try { if ('wakeLock' in navigator && !this.lock) { this.lock = await navigator.wakeLock.request('screen'); this.lock.addEventListener('release', () => { this.lock = null; }); } } catch (e) {} },
+  off() { try { this.lock && this.lock.release(); } catch (e) {} this.lock = null; }
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (S.screen === 'game') Wake.on();
+  Geo.publish(true);
+});
+
+/* ---------------- alerts ---------------- */
+const flashQ = []; let flashBusy = false;
+function flash(kind, emoji, title, sub) { flashQ.push({ kind, emoji, title, sub }); if (!flashBusy) nextFlash(); }
+function nextFlash() {
+  const f = flashQ.shift(); const el = $('#flash');
+  if (!f) { flashBusy = false; return; }
+  flashBusy = true;
+  el.className = 'flash ' + f.kind;
+  el.innerHTML = `<div class="rp"></div><div class="rp r2"></div><div class="rp r3"></div><div class="fe">${f.emoji}</div><div class="ft">${esc(f.title)}</div><div class="fs">${esc(f.sub || '')}</div>`;
+  void el.offsetWidth; el.classList.add('show');
+  setTimeout(nextFlash, 3200);
+}
+let toastT;
+function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+
+function announceCatch(runnerId, d) {
+  const mine = runnerId === myId;
+  Sfx.caught(); buzz([300, 100, 300, 100, 500]);
+  if (mine) flash('caught', '💀', 'YOU WERE CAUGHT', `${nameOf(d.by)} got you. Stay in the game to watch.`);
+  else if (d.by === myId) flash('caught', '🎯', 'YOU CAUGHT ' + nameOf(runnerId).toUpperCase(), `${aliveRunners().length} runner${aliveRunners().length === 1 ? '' : 's'} left`);
+  else flash('caught', '🎯', 'RUNNER CAUGHT', `${nameOf(runnerId)} was caught by ${nameOf(d.by)} · ${aliveRunners().length} left`);
+}
+
+/* ---------------- screens ---------------- */
+function show(id) {
+  if (S.screen === id) return;
+  S.screen = id;
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+  if (id === 'game') { initMap(); Wake.on(); setTimeout(() => { MapV.m && MapV.m.invalidateSize(); updateMap(); }, 380); }
+  else Wake.off();
+}
+
+function onState() {
+  const s = G.state; if (!s) return;
+  if (s.kicked && s.kicked[myId]) { leave(true); $('#homeErr').textContent = 'The host removed you from that game.'; return; }
+  if (S.round !== s.round) { S.round = s.round; resetRound(); }
+  if (isHost() && s.phase === 'lobby') setTimeout(hostSyncAll, 0);
+  const inGame = !!me();
+  if (!inGame && s.phase !== 'lobby') { leave(true); $('#homeErr').textContent = 'That game already started.'; return; }
+  if (s.phase === 'lobby') { S.overSent = false; show('lobby'); renderLobby(); }
+  else if (s.phase === 'roles') { show('roles'); renderRoles(); }
+  else if (s.phase === 'live') { show(phase() === 'over' ? 'over' : 'game'); if (phase() === 'over') renderOver(); else renderGame(); }
+  else if (s.phase === 'over') { if (S.screen === 'game') endFx(); show('over'); renderOver(); }
+}
+
+/* ---------- home ---------- */
+const nameIn = $('#nameIn'), codeIn = $('#codeIn');
+nameIn.value = S.name;
+if (QS.get('join')) codeIn.value = QS.get('join').toUpperCase().slice(0, 5);
+codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+function readName() {
+  const n = nameIn.value.trim().replace(/\s+/g, ' ');
+  if (!n) { $('#homeErr').textContent = 'Type your name first.'; nameIn.focus(); return null; }
+  S.name = n; store.set('name', n); return n;
+}
+function busy(btn, on, label) { btn.disabled = on; if (label) btn.textContent = label; }
+function resetRound() { S.endFx = false; S.pingSeen = -1; S.near = {}; S.lastPhase = null; S.fitted = false; S.warned = {}; S.lastBeep = -1; S.overSent = false; }
+
+$('#createBtn').onclick = async () => {
+  const name = readName(); if (!name) return;
+  if (!crypto.subtle) { $('#homeErr').textContent = 'Open the app from an https:// link.'; return; }
+  $('#homeErr').textContent = ''; Geo.start(); Sfx.unlock();
+  const btn = $('#createBtn'); busy(btn, true, 'Creating…');
+  const code = rid(5, 'ABCDEFGHJKMNPQRSTUVWXYZ23456789');
+  const ok = await Net.connect(code, false);
+  busy(btn, false, 'Create game');
+  if (!ok) { $('#homeErr').textContent = "Couldn't reach the game server. Check your signal and try again."; return; }
+  G.hellos = {}; G.locs = Geo.last ? { [myId]: Geo.last } : {}; G.rounds = {}; resetRound();
+  G.state = { gid: rid(8), rev: 1, round: 1, hostId: myId, phase: 'lobby', settings: { ...DEFAULTS }, players: { [myId]: { name, joinedAt: Date.now() } }, kicked: {} };
+  Net.pub('state', G.state, true);
+  Net.pub('hello/' + myId, { name, t: Date.now() }, true);
+  Geo.publish(true);
+  store.set('session', { code, name });
+  onState();
+};
+async function joinGame(code, name, btn) {
+  if (!crypto.subtle) { $('#homeErr').textContent = 'Open the app from an https:// link.'; return; }
+  $('#homeErr').textContent = ''; Geo.start(); Sfx.unlock();
+  const label = btn.textContent; busy(btn, true, '…');
+  G.state = null; G.hellos = {}; G.locs = Geo.last ? { [myId]: Geo.last } : {}; G.rounds = {}; resetRound();
+  const ok = await Net.connect(code, true);
+  busy(btn, false, label);
+  if (!ok) { Net.end(); $('#homeErr').textContent = 'No game found with code ' + code + '.'; return; }
+  if (!G.state || !Net.client) return;
+  store.set('session', { code, name });
+  Net.pub('hello/' + myId, { name, t: Date.now() }, true);
+  Geo.publish(true);
+  onState();
+}
+$('#joinBtn').onclick = () => {
+  const name = readName(); if (!name) return;
+  const code = codeIn.value.trim().toUpperCase();
+  if (code.length !== 5) { $('#homeErr').textContent = 'Game codes are 5 characters.'; codeIn.focus(); return; }
+  joinGame(code, name, $('#joinBtn'));
+};
+const sess = store.get('session');
+if (sess && sess.code) { const b = $('#rejoinBtn'); b.hidden = false; b.textContent = 'Rejoin game ' + sess.code;
+  b.onclick = () => { if (!nameIn.value.trim()) nameIn.value = sess.name || ''; const n = readName(); if (n) joinGame(sess.code, n, b); }; }
+$('#rulesBtn').onclick = () => openRules();
+
+function leave(silent) {
+  if (G.state && Net.client) {
+    Net.pub('hello/' + myId, null, true);
+    if (isHost() && G.state.phase === 'lobby') {
+      const others = Object.keys(P()).filter(id => id !== myId);
+      if (others.length) hostPub(s => { delete s.players[myId]; s.hostId = others[0]; });
+    }
+  }
+  const oldC = Net.client; Net.client = null; setConn('off'); setTimeout(() => { try { oldC && oldC.end(false); } catch (e) {} }, 400);
+  store.del('session'); $('#rejoinBtn').hidden = true;
+  G.state = null; Geo.stop(); closeSheet(); show('home');
+  if (!silent) $('#homeErr').textContent = '';
+}
+function confirmLeave() {
+  openSheet(`<h3>Leave game?</h3><p style="color:var(--dim);font-size:16px;margin:0 0 6px">You can rejoin from the home screen with the same code.</p>
+    <button class="btn danger" id="lvYes">Leave</button><button class="btn ghost" onclick="closeSheet()">Stay</button>`);
+  $('#lvYes').onclick = () => leave(false);
+}
+$('#lobbyLeave').onclick = confirmLeave; $('#rolesLeave').onclick = confirmLeave;
+
+/* ---------- lobby ---------- */
+const SETS = [
+  { k: 'headMin', i: '⏱️', l: 'Runner head start', d: 'Hunters wait this long', min: 1, max: 30, step: 1, u: 'min' },
+  { k: 'pingMin', i: '📡', l: 'Ping hunters every', d: 'Runner locations revealed', min: 1, max: 15, step: 1, u: 'min' },
+  { k: 'catchFt', i: '🎯', l: 'Catch distance', d: 'How close a hunter must get', min: 10, max: 300, step: 10, u: 'ft', x: v => '≈ ' + Math.round(v * FT) + ' m' },
+  { k: 'surviveMin', i: '🛡️', l: 'Runners must survive', d: 'Clock starts when hunters go', min: 5, max: 180, step: 5, u: 'min' },
+  { k: 'hunters', i: '🔴', l: 'Number of hunters', d: 'Everyone else is a runner' }
+];
+function renderLobby() {
+  if (S.screen !== 'lobby' || !G.state) return;
+  const s = G.state, host = isHost(), now = Date.now();
+  $('#codeShow').innerHTML = [...Net.code].map(c => `<span>${c}</span>`).join('');
+  const gs = Geo.status, gc = $('#gpsCard');
+  const gpsMsg = {
+    ok: ['📍', 'GPS locked', Geo.last ? `Accurate to about ${fmtDist(Geo.last.acc || 0)}` : ''],
+    asking: ['🛰️', 'Finding you…', 'Allow location access when your phone asks'],
+    off: ['🛰️', 'Location is off', 'Tap to turn on GPS for the game'],
+    denied: ['🚫', 'Location blocked', 'Settings → Privacy & Security → Location Services → Safari Websites → While Using. Then tap here.'],
+    error: ['⚠️', 'No GPS signal yet', 'Step outside or tap to retry'],
+    insecure: ['🔒', 'Needs a secure link', 'Open the app from its https:// address'],
+    unsupported: ['⚠️', 'GPS not supported', 'This browser cannot share location']
+  }[gs] || ['🛰️', '…', ''];
+  gc.className = 'gps-card ' + (gs === 'ok' ? 'ok' : ['denied', 'insecure', 'unsupported', 'error'].includes(gs) ? 'bad' : '');
+  gc.innerHTML = `<div class="ic">${gpsMsg[0]}</div><div class="tx">${gpsMsg[1]}<small>${esc(gpsMsg[2])}</small></div>`;
+  gc.onclick = () => { if (gs !== 'ok') { Geo.stop(); Geo.start(); } };
+
+  const ids = Object.keys(s.players).sort((a, b) => s.players[a].joinedAt - s.players[b].joinedAt);
+  let html = ids.map(id => {
+    const p = s.players[id], f = id === myId ? Geo.status === 'ok' : fresh(G.locs[id], now);
+    return `<li class="pl"><div class="av" style="--h:${hue(id)}">${esc(p.name.slice(0, 1).toUpperCase())}</div>
+      <div class="pn">${esc(p.name)}${id === myId ? '<i class="tg you">YOU</i>' : ''}${id === s.hostId ? '<i class="tg host">HOST</i>' : ''}</div>
+      <div class="gpsd ${f ? 'on' : ''}">${f ? 'GPS' : 'NO GPS'}</div>
+      ${host && id !== myId ? `<button class="kick" data-kick="${id}" aria-label="Remove">✕</button>` : ''}</li>`;
+  }).join('');
+  if (!s.players[myId]) html += `<li class="pl"><div class="av" style="--h:${hue(myId)}">${esc(S.name.slice(0, 1).toUpperCase())}</div><div class="pn">${esc(S.name)}<i class="tg wait">JOINING…</i></div></li>`;
+  $('#playerList').innerHTML = html;
+  $('#playerList').querySelectorAll('[data-kick]').forEach(b => b.onclick = () => {
+    const id = b.dataset.kick; hostPub(x => { delete x.players[id]; x.kicked[id] = 1; }); });
+  $('#pCount').textContent = ids.length + (ids.length === 1 ? ' player' : ' players');
+  $('#setHint').textContent = host ? 'You’re the host' : 'Host sets these';
+
+  const st = s.settings, hc = hunterCount(s), n = ids.length;
+  $('#settings').innerHTML = SETS.map(o => {
+    if (o.k === 'hunters') {
+      return `<div class="set"><div class="si">${o.i}</div><div class="sl">${o.l}<small>${st.hunters == null ? 'Auto · ' : ''}${Math.max(0, n - hc)} runner${n - hc === 1 ? '' : 's'}</small></div>
+        <div class="step"><button data-k="hunters" data-d="-1" ${!host || hc <= 1 ? 'disabled' : ''}>−</button><div class="v">${hc}<small>hunter${hc === 1 ? '' : 's'}</small></div><button data-k="hunters" data-d="1" ${!host || hc >= n - 1 ? 'disabled' : ''}>+</button></div></div>`;
+    }
+    const v = st[o.k];
+    return `<div class="set"><div class="si">${o.i}</div><div class="sl">${o.l}<small>${o.d}</small></div>
+      <div class="step"><button data-k="${o.k}" data-d="-1" ${!host || v <= o.min ? 'disabled' : ''}>−</button><div class="v">${v}<small>${o.x ? o.u + ' · ' + o.x(v) : o.u}</small></div><button data-k="${o.k}" data-d="1" ${!host || v >= o.max ? 'disabled' : ''}>+</button></div></div>`;
+  }).join('') + `<div class="set"><div class="si">⚡</div><div class="sl">Ping right when hunters go<small>Hunters get a first look at release</small></div><button class="tog ${st.reveal ? 'on' : ''}" id="revTog" ${host ? '' : 'disabled'} aria-label="Toggle"></button></div>`;
+  $('#settings').querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+    const k = b.dataset.k, d = +b.dataset.d;
+    if (k === 'hunters') { const v = hunterCount() + d; hostPub(x => { x.settings.hunters = v; }); return; }
+    const o = SETS.find(z => z.k === k);
+    hostPub(x => { x.settings[k] = Math.min(o.max, Math.max(o.min, x.settings[k] + d * o.step)); });
+  });
+  const rt = $('#revTog'); if (rt && host) rt.onclick = () => hostPub(x => { x.settings.reveal = !x.settings.reveal; });
+
+  const a = $('#lobbyActions');
+  if (host) {
+    a.innerHTML = `<button class="btn primary" id="assignBtn" ${n < 2 ? 'disabled' : ''}>${n < 2 ? 'Need 2+ players' : 'Pick roles 🎲'}</button>`;
+    $('#assignBtn').onclick = assignRoles;
+  } else a.innerHTML = `<div class="wait-pill"><div class="spin"></div>${s.players[myId] ? 'Waiting for the host…' : 'Joining…'}</div>`;
+}
+$('#shareBtn').onclick = async () => {
+  const url = location.origin + location.pathname + '?join=' + Net.code;
+  const text = `Join my HUNTED game! Code: ${Net.code}`;
+  try { if (navigator.share) { await navigator.share({ title: 'HUNTED', text, url }); return; } } catch (e) { return; }
+  try { await navigator.clipboard.writeText(text + ' ' + url); toast('Invite link copied'); } catch (e) { toast('Code: ' + Net.code); }
+};
+function assignRoles() {
+  hostPub(s => {
+    const ids = shuffle(Object.keys(s.players)), H = hunterCount(s);
+    ids.forEach((id, i) => { s.players[id].role = i < H ? 'hunter' : 'runner'; });
+    s.phase = 'roles'; s.assignId = rid(6);
+  });
+}
+
+/* ---------- roles ---------- */
+function renderRoles() {
+  if (S.screen !== 'roles' || !G.state) return;
+  const s = G.state, role = myRole(), hunter = role === 'hunter';
+  const key = s.assignId + ':' + role;
+  if (S.revealKey !== key) { S.revealKey = key; S.revealed = false; $('#flip').classList.remove('open'); }
+  const b = $('#roleBack'); b.className = 'face back ' + (hunter ? 'hunter' : '');
+  b.innerHTML = hunter
+    ? `<div class="em">🎯</div><div class="you">YOU ARE A</div><h2>HUNTER</h2><p>Wait out the head start, then <b>run or bike</b> after the runners. Catch them all.</p>`
+    : `<div class="em">🏃</div><div class="you">YOU ARE A</div><h2>RUNNER</h2><p>Run now. <b>On foot only.</b> Survive ${s.settings.surviveMin} min after the hunters are released.</p>`;
+  const team = (r, cls, title) => `<div class="team ${cls} ${S.revealed ? '' : 'hide'}"><h4>${title}</h4>${idsOf(r).map(id => `<div>${esc(nameOf(id))}${id === myId ? ' ·&nbsp;you' : ''}</div>`).join('')}</div>`;
+  $('#teams').innerHTML = team('runner', 'r', 'RUNNERS') + team('hunter', 'h', 'HUNTERS');
+  const a = $('#rolesActions');
+  if (isHost()) {
+    a.innerHTML = `<button class="btn" id="reshuf">Reshuffle</button><button class="btn go" id="startBtn">Start ▶</button>`;
+    $('#reshuf').onclick = assignRoles;
+    $('#startBtn').onclick = () => {
+      openSheet(`<h3>Start the game?</h3>
+      <p style="color:var(--dim);font-size:16px;margin:0 0 6px">Runners get a <b class="c-run">${s.settings.headMin} min</b> head start. Make sure everyone has the app open with GPS on.</p>
+      <button class="btn go" id="goYes">Start now</button><button class="btn ghost" onclick="closeSheet()">Not yet</button>`);
+      $('#goYes').onclick = startGame;
+    };
+  } else a.innerHTML = `<div class="wait-pill"><div class="spin"></div>Host starts the game…</div>`;
+}
+$('#flip').onclick = () => { if (S.revealed) return; S.revealed = true; $('#flip').classList.add('open'); Sfx.unlock(); Sfx.go(); buzz(80); setTimeout(renderRoles, 500); };
+function startGame() {
+  closeSheet();
+  hostPub(s => { const now = Date.now(); s.phase = 'live'; s.startAt = now; s.releaseAt = now + s.settings.headMin * MIN; s.endAt = s.releaseAt + s.settings.surviveMin * MIN; s.winner = null; });
+}
+
+/* ---------- map ---------- */
+const MapV = { m: null, marks: {}, circles: {} };
+function initMap() {
+  if (MapV.m || !window.L) return;
+  const m = MapV.m = L.map('map', { zoomControl: false, attributionControl: true, zoomSnap: .5 });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20,
+    attribution: '&copy; OpenStreetMap &copy; CARTO' }).addTo(m);
+  const start = Geo.last || Object.values(G.locs)[0];
+  m.setView(start ? [start.lat, start.lng] : [39.5, -98.35], start ? 17 : 4);
+  m.on('dragstart', () => { S.follow = false; $('#fabMe').classList.remove('on'); });
+}
+function markerHtml(cls, name, sub) { return `<div class="mk ${cls}"><i></i><b>${esc(name)}</b>${sub ? `<em>${esc(sub)}</em>` : ''}</div>`; }
+function setMark(key, ll, cls, name, sub) {
+  const html = markerHtml(cls, name, sub);
+  let mk = MapV.marks[key];
+  if (!mk) { mk = MapV.marks[key] = L.marker(ll, { icon: L.divIcon({ className: '', html, iconSize: [0, 0] }), keyboard: false, zIndexOffset: cls.includes('me') ? 1000 : 0 }).addTo(MapV.m); mk._h = html; }
+  else { mk.setLatLng(ll); if (mk._h !== html) { mk.setIcon(L.divIcon({ className: '', html, iconSize: [0, 0] })); mk._h = html; } }
+}
+function setCircle(key, ll, r, color) {
+  let c = MapV.circles[key];
+  if (!c) c = MapV.circles[key] = L.circle(ll, { radius: r, color, weight: 1.5, opacity: .8, fillColor: color, fillOpacity: .12, dashArray: '4 4', interactive: false }).addTo(MapV.m);
+  else { c.setLatLng(ll); c.setRadius(r); }
+}
+let mapT = 0;
+function updateMap() {
+  if (!MapV.m || !G.state || S.screen !== 'game') return;
+  const now = Date.now(), role = myRole(), seen = new Set(), seenC = new Set(), pts = [];
+  const catchM = G.state.settings.catchFt * FT, ph = phase(now);
+  const put = (key, l, cls, name, sub) => { const ll = [l.lat, l.lng]; setMark(key, ll, cls, name, sub); seen.add(key); pts.push(ll); };
+  // hunters — everyone sees them live
+  for (const id of idsOf('hunter')) {
+    const l = G.locs[id]; if (!l) continue;
+    const stale = now - l.t > 60000;
+    put('h:' + id, l, 'hunter' + (id === myId ? ' me' : '') + (stale ? ' stale' : ''), id === myId ? 'You' : nameOf(id), stale ? 'signal lost · ' + ago(now - l.t) : (role === 'runner' && Geo.last && id !== myId ? fmtDist(dist(Geo.last, l)) : ''));
+    if (ph === 'hunt' || ph === 'head') { setCircle('c:' + id, [l.lat, l.lng], catchM, '#ff2a6d'); seenC.add('c:' + id); }
+  }
+  if (role === 'runner') {
+    for (const id of idsOf('runner')) {
+      const l = G.locs[id]; if (!l) continue;
+      const out = caughtOf(id), stale = now - l.t > 60000;
+      if (out && id !== myId) continue;
+      put('r:' + id, l, 'runner' + (id === myId ? ' me' : '') + (stale ? ' stale' : ''), id === myId ? 'You' : nameOf(id), out ? 'caught' : stale ? 'signal lost' : '');
+    }
+  } else if (role === 'hunter') {
+    const pg = rnd().ping;
+    if (pg) for (const [id, l] of Object.entries(pg.locs || {})) {
+      if (caughtOf(id)) continue;
+      put('p:' + id, l, 'runner ping', nameOf(id), 'seen ' + ago(now - Math.min(pg.at, l.t || pg.at)));
+    }
+  }
+  for (const k of Object.keys(MapV.marks)) if (!seen.has(k)) { MapV.m.removeLayer(MapV.marks[k]); delete MapV.marks[k]; }
+  for (const k of Object.keys(MapV.circles)) if (!seenC.has(k)) { MapV.m.removeLayer(MapV.circles[k]); delete MapV.circles[k]; }
+  if (S.follow && Geo.last) MapV.m.panTo([Geo.last.lat, Geo.last.lng], { animate: true });
+  else if (!S.fitted && pts.length) { S.fitted = true; fitAll(); }
+}
+function fitAll() { const pts = Object.values(MapV.marks).map(m => m.getLatLng()); if (!pts.length || !MapV.m) return;
+  if (pts.length === 1) MapV.m.setView(pts[0], 17); else MapV.m.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 18 }); }
+function onLocs() {
+  if (S.screen === 'lobby') { clearTimeout(mapT); mapT = setTimeout(renderLobby, 300); return; }
+  if (S.screen !== 'game') return;
+  clearTimeout(onLocs.tm); const now = Date.now();
+  if (now - (onLocs.t || 0) < 700) { onLocs.tm = setTimeout(onLocs, 750); return; }
+  onLocs.t = now; updateMap(); renderRoster();
+}
+$('#fabMe').onclick = () => { S.follow = true; $('#fabMe').classList.add('on'); if (Geo.last && MapV.m) MapV.m.setView([Geo.last.lat, Geo.last.lng], Math.max(MapV.m.getZoom(), 17)); };
+$('#fabFit').onclick = () => { S.follow = false; $('#fabMe').classList.remove('on'); fitAll(); };
+$('#fabMenu').onclick = () => openMenu();
+$('#drawer').onclick = e => { if (e.target.closest('.drawer-body')) return; $('#drawer').classList.toggle('open'); };
+
+/* ---------- game HUD ---------- */
+function renderGame() {
+  if (S.screen !== 'game' || !G.state) return;
+  const role = myRole(), out = role === 'runner' && caughtOf(myId);
+  const rc = $('#roleChip'); rc.className = 'chip role-chip ' + (out ? 'out' : role);
+  rc.innerHTML = out ? '<div class="e">💀</div><div class="n">CAUGHT</div>' : role === 'hunter' ? '<div class="e">🎯</div><div class="n">HUNTER</div>' : '<div class="e">🏃</div><div class="n">RUNNER</div>';
+  renderRoster(); tickGame();
+}
+function renderRoster() {
+  if (S.screen !== 'game' || !G.state) return;
+  const now = Date.now(), role = myRole(), alive = aliveRunners().length, total = idsOf('runner').length, pg = rnd().ping;
+  $('#drawerSum').innerHTML = `<div class="dsum"><div class="pill r"><b>${alive}/${total}</b><span>RUNNERS LEFT</span></div><div class="pill h"><b>${idsOf('hunter').length}</b><span>HUNTERS</span></div></div>`;
+  const rows = [];
+  rows.push('<div class="dh">RUNNERS</div>');
+  for (const id of idsOf('runner')) {
+    const c = caughtOf(id);
+    let st = '';
+    if (c) st = `caught by <b>${esc(nameOf(c.by))}</b> · ${fmt(c.at - G.state.releaseAt)}`;
+    else if (role === 'hunter') { const l = pg && pg.locs && pg.locs[id]; st = l && Geo.last ? `<b>${fmtDist(dist(Geo.last, l))}</b> at last ping` : 'not pinged yet'; }
+    else { const l = G.locs[id]; st = id === myId ? '<b>you</b>' : l && fresh(l, now) ? 'alive' : 'no signal'; }
+    rows.push(`<div class="rrow runner ${c ? 'out' : ''}"><div class="d"></div><div class="nm">${esc(nameOf(id))}</div><div class="st">${st}</div></div>`);
+  }
+  rows.push('<div class="dh">HUNTERS</div>');
+  for (const id of idsOf('hunter')) {
+    const l = G.locs[id], n = rnd() && Object.values(rnd().caught).filter(c => c.by === id).length;
+    const d = id === myId ? '<b>you</b>' : l && Geo.last ? `<b>${fmtDist(dist(Geo.last, l))}</b> away` : 'no signal';
+    rows.push(`<div class="rrow hunter"><div class="d"></div><div class="nm">${esc(nameOf(id))}</div><div class="st">${d}${n ? ` · ${n} 🎯` : ''}</div></div>`);
+  }
+  $('#roster').innerHTML = rows.join('');
+}
+
+function tickGame() {
+  const s = G.state, now = Date.now(), ph = phase(now), role = myRole();
+  const tl = $('#tLbl'), tv = $('#tVal'), lock = $('#lockOverlay'), sl = $('#statusLine');
+  let left;
+  if (ph === 'head') { left = s.releaseAt - now; tl.textContent = role === 'hunter' ? 'YOU’RE RELEASED IN' : 'HUNTERS RELEASED IN'; }
+  else { left = s.endAt - now; tl.textContent = role === 'hunter' ? 'TIME TO CATCH THEM' : 'SURVIVE FOR'; }
+  tv.textContent = fmt(left);
+  tv.classList.toggle('urgent', left < 10500 && left > 0);
+  lock.hidden = !(ph === 'head' && role === 'hunter');
+  $('#lockT').textContent = fmt(s.releaseAt - now);
+  // ping ring
+  const pt = $('#pingT'), ring = $('#pingRing');
+  if (ph === 'hunt') {
+    const nxt = pingTime(pingCount(now) + 1);
+    if (nxt < s.endAt) { pt.textContent = fmt(nxt - now); ring.style.strokeDashoffset = (113.1 * (1 - (nxt - now) / pingMs())).toFixed(1); }
+    else { pt.textContent = '—'; ring.style.strokeDashoffset = '113.1'; }
+  } else { pt.textContent = ph === 'head' ? fmt(s.settings.reveal ? s.releaseAt - now : s.releaseAt + pingMs() - now) : '—'; ring.style.strokeDashoffset = '0'; }
+  // status line
+  let msg = '', warn = false;
+  const conn = sl.dataset.conn;
+  if (conn === 'off' || conn === 'wait') { msg = 'Reconnecting to the game…'; warn = true; }
+  else if (Geo.status !== 'ok') { msg = Geo.status === 'denied' ? 'Location is blocked — the game can’t see you' : 'Waiting for GPS…'; warn = true; }
+  else if (role === 'runner' && caughtOf(myId)) msg = 'You’re out — watching the hunt';
+  else if (ph === 'head') msg = role === 'runner' ? '<b>RUN!</b> On foot only · keep this screen on' : 'Hunters can run or bike once released';
+  else if (role === 'hunter') { const pg = rnd().ping; msg = pg ? `Last ping <b>${ago(now - pg.at)}</b> · tap ☰ for rules` : 'Waiting for the first ping…'; }
+  else { const near = nearestHunter(); msg = near ? `Closest hunter <b>${fmtDist(near.d)}</b> · ${esc(nameOf(near.id))}` : 'Keep moving'; }
+  sl.innerHTML = msg; sl.classList.toggle('warn', warn);
+}
+function nearestHunter() { if (!Geo.last) return null; let best = null;
+  for (const id of idsOf('hunter')) { const l = G.locs[id]; if (!l) continue; const d = dist(Geo.last, l); if (!best || d < best.d) best = { id, d }; } return best; }
+
+/* ---------- the game loop ---------- */
+function loop() {
+  const s = G.state, now = Date.now();
+  if (!s || s.phase !== 'live') { S.lastPhase = s ? s.phase : null; return; }
+  const ph = phase(now), role = myRole();
+  // phase transitions
+  if (S.lastPhase !== ph) {
+    const prev = S.lastPhase; S.lastPhase = ph;
+    if (prev === null || prev === 'roles' || prev === 'lobby' || prev === 'live') {
+      if (ph === 'head' && now - s.startAt < 5000) { Sfx.go(); buzz([200, 80, 200]);
+        flash('go', role === 'hunter' ? '⏳' : '🏃', role === 'hunter' ? 'HOLD POSITION' : 'RUN!', role === 'hunter' ? `Runners have a ${s.settings.headMin} min head start` : 'On foot only — the hunters are coming'); }
+    } else if (prev === 'head' && ph === 'hunt') {
+      Sfx.go(); buzz([400, 100, 400]);
+      flash('go', role === 'hunter' ? '🎯' : '⚠️', role === 'hunter' ? 'GO HUNT!' : 'HUNTERS RELEASED', role === 'hunter' ? 'Run or bike — catch every runner' : `Survive ${s.settings.surviveMin} minutes`);
+    }
+    if (ph === 'over') {
+      if (isHost() && !S.overSent) { S.overSent = true; const w = winner(); hostPub(x => { x.phase = 'over'; x.winner = w; x.finishedAt = Date.now(); }); }
+      if (prev && prev !== 'over') endFx();
+      show('over'); renderOver(); return;
+    }
+    show('game'); renderGame();
+  }
+  // countdown beeps for last 5 s of head start and game
+  const target = ph === 'head' ? s.releaseAt : s.endAt, secs = Math.ceil((target - now) / 1000);
+  if (secs <= 5 && secs >= 1 && secs !== S.lastBeep) { S.lastBeep = secs; Sfx.tick(); }
+  // pings
+  const pn = pingCount(now);
+  if (S.pingSeen === -1) S.pingSeen = pn;
+  else if (pn > S.pingSeen) {
+    S.pingSeen = pn;
+    const at = pingTime(pn);
+    if (now - at < 20000) {
+      Sfx.ping(); buzz([120, 60, 120, 60, 120]);
+      if (role === 'hunter') flash('ping', '📡', 'PING #' + pn, 'Runner locations updated on your map');
+      else if (!caughtOf(myId)) flash('ping', '📡', 'YOU’VE BEEN PINGED', 'The hunters can see where you are right now');
+      setTimeout(() => makePing(pn, at), Math.random() * 1200);
+    }
+  }
+  // runners: heads-up before the ping
+  if (ph === 'hunt' && role === 'runner' && !caughtOf(myId)) {
+    const nxt = pingTime(pn + 1), w = Math.round((nxt - now) / 1000);
+    if (nxt < s.endAt && w <= 15 && w > 0 && !S.warned[pn + 1]) { S.warned[pn + 1] = 1; Sfx.warn(); buzz(150); toast('📡 Location ping in ' + w + 's'); }
+  }
+  if (ph === 'hunt') checkCatch(now);
+  if (S.screen === 'game') tickGame();
+  if (now - (loop.map || 0) > 4000) { loop.map = now; updateMap(); renderRoster(); }
+}
+setInterval(loop, 500);
+
+function makePing(n, at) {
+  const R = rnd(); if (!G.state || (R.ping && R.ping.n >= n)) return;
+  const locs = {};
+  for (const id of aliveRunners()) { const l = G.locs[id]; if (l) locs[id] = { lat: l.lat, lng: l.lng, t: l.t }; }
+  R.ping = { n, at, locs, by: myId };
+  Net.pub('r' + G.state.round + '/ping', R.ping, true);
+  updateMap(); renderRoster();
+}
+
+function checkCatch(now) {
+  const m = me(), mine = Geo.last; if (!m || !mine || Geo.status !== 'ok' || now - mine.ft > 180000) return;
+  const C = G.state.settings.catchFt * FT, pairs = [];
+  if (m.role === 'runner' && !caughtOf(myId)) {
+    for (const h of idsOf('hunter')) { const l = G.locs[h]; if (fresh(l, now) && dist(mine, l) <= C) pairs.push([myId, h]); }
+  } else if (m.role === 'hunter') {
+    for (const r of aliveRunners()) { const l = G.locs[r]; if (fresh(l, now) && dist(mine, l) <= C) pairs.push([r, myId]); }
+  }
+  const keep = {};
+  for (const [r, h] of pairs) {
+    const k = r + '|' + h; keep[k] = (S.near[k] || 0) + 1;
+    if (keep[k] >= 3 && !caughtOf(r)) publishCatch(r, h, 'gps');
+  }
+  S.near = keep;
+}
+function publishCatch(r, h, how) {
+  const R = rnd(); if (R.caught[r]) return;
+  const d = { by: h, at: Date.now(), how };
+  R.caught[r] = d;
+  Net.pub('r' + G.state.round + '/caught/' + r, d, true);
+  announceCatch(r, d); updateMap(); renderGame();
+}
+
+/* ---------- game over ---------- */
+function endFx() { if (S.endFx) return; S.endFx = true; const w = winner(), r = myRole(); const won = (w === 'hunters' && r === 'hunter') || (w === 'runners' && r === 'runner');
+  if (w === 'ended') return; won ? Sfx.win() : Sfx.lose(); buzz(won ? [100, 50, 100, 50, 300] : [500]); }
+function renderOver() {
+  if (S.screen !== 'over' || !G.state) return;
+  const s = G.state, w = winner(), role = myRole();
+  const total = idsOf('runner').length, alive = aliveRunners();
+  const won = (w === 'hunters' && role === 'hunter') || (w === 'runners' && role === 'runner');
+  const ow = $('#overWrap'); ow.className = 'over-wrap ' + w;
+  const caught = Object.entries(rnd().caught).filter(([id]) => caughtOf(id)).sort((a, b) => a[1].at - b[1].at);
+  let title, emoji, sub;
+  if (w === 'hunters') { emoji = '🎯'; title = 'HUNTERS WIN'; const last = caught[caught.length - 1]; sub = `Every runner caught${last ? ' in ' + fmt(last[1].at - s.releaseAt) : ''}`; }
+  else if (w === 'runners') { emoji = '🏆'; title = 'RUNNERS SURVIVE'; sub = `${alive.length} of ${total} runner${total === 1 ? '' : 's'} made it to the end`; }
+  else { emoji = '🏁'; title = 'GAME ENDED'; sub = 'The host ended the game early'; }
+  const rows = caught.map(([id, c]) => `<div class="rrow runner out"><div class="d"></div><div class="nm">${esc(nameOf(id))}</div><div class="st">caught by <b style="color:var(--hunt)">${esc(nameOf(c.by))}</b> · ${fmt(c.at - s.releaseAt)}</div></div>`)
+    .concat(alive.map(id => `<div class="rrow runner"><div class="d"></div><div class="nm">${esc(nameOf(id))}</div><div class="st"><b>survived</b> 🏆</div></div>`)).join('');
+  ow.innerHTML = `<div class="trophy">${emoji}</div><h1>${title}</h1><div class="sub">${sub}</div>
+    ${w !== 'ended' ? `<div class="youres">${won ? 'YOU WON' : 'YOU LOST'}</div>` : '<div style="height:16px"></div>'}
+    <div class="log">${rows || '<div class="rrow"><div class="nm" style="color:var(--dim)">No runners</div></div>'}</div>`;
+  const cf = $('#confetti'); const col = w === 'hunters' ? ['#ff2a6d', '#ff7aa2', '#ffc23d'] : ['#00f0ff', '#d4ff3a', '#9d5cff'];
+  cf.innerHTML = w === 'ended' ? '' : Array.from({ length: 40 }, (_, i) => `<i style="left:${Math.random() * 100}%;background:${col[i % 3]};animation-duration:${3 + Math.random() * 4}s;animation-delay:${-Math.random() * 6}s"></i>`).join('');
+  $('#overActions').innerHTML = (isHost() ? `<button class="btn primary" id="againBtn">Play again</button>` : '') + `<button class="btn" id="exitBtn">Leave</button>`;
+  $('#exitBtn').onclick = () => leave(false);
+  if (isHost()) $('#againBtn').onclick = () => { resetRound(); hostPub(x => { x.round++; x.phase = 'lobby'; x.winner = null; x.startAt = x.releaseAt = x.endAt = null; for (const id in x.players) delete x.players[id].role; }); };
+}
+
+/* ---------- sheets / menus ---------- */
+function openSheet(html) { $('#sheet').innerHTML = html; $('#sheet').classList.add('show'); $('#sheetBg').classList.add('show'); }
+function closeSheet() { $('#sheet').classList.remove('show'); $('#sheetBg').classList.remove('show'); }
+$('#sheetBg').onclick = closeSheet;
+function rulesHtml() {
+  const st = G.state ? G.state.settings : DEFAULTS;
+  return `<ol class="rules">
+    <li>Everyone opens the app, types their name, and joins with the host’s <b>game code</b>. The app randomly splits you into <b class="c-run">runners</b> and <b class="c-hunt">hunters</b>.</li>
+    <li>Runners get a <b>${st.headMin} min head start</b>. Hunters stay put until the timer hits zero.</li>
+    <li><b class="c-run">Runners stay on foot.</b> <b class="c-hunt">Hunters can run or bike.</b></li>
+    <li>Runners see every hunter’s exact location <b>live, all the time</b>.</li>
+    <li>Hunters see each other live, but only see runners on a <b class="c-acid">ping</b> — every ${st.pingMin} min the map updates with where each runner is.</li>
+    <li>Get within <b>${st.catchFt} ft</b> of a runner and they’re caught. Every hunter gets pinged with who was caught and who caught them.</li>
+    <li><b class="c-hunt">Hunters win</b> by catching every runner. <b class="c-run">Runners win</b> if anyone lasts <b>${st.surviveMin} min</b> after the hunters are released.</li>
+  </ol>
+  <div class="note">📱 Keep HUNTED open on screen the whole game — iPhones pause web apps when the screen locks, which stops your location and alerts. Turn the ringer on for sounds. Watch for cars, and agree on boundaries before you start.</div>`;
+}
+function openRules() { openSheet(`<h3>HOW TO PLAY</h3>${rulesHtml()}<button class="btn" onclick="closeSheet()">Got it</button>`); }
+function openMenu() {
+  const role = myRole(), ph = phase(), canTag = role === 'runner' && !caughtOf(myId) && ph === 'hunt';
+  openSheet(`<h3>MENU</h3>
+    <button class="btn" id="mRules">How to play</button>
+    ${canTag ? '<button class="btn danger" id="mTag">I got tagged</button>' : ''}
+    ${isHost() ? '<button class="btn danger" id="mEnd">End game for everyone</button>' : ''}
+    <button class="btn ghost" id="mLeave">Leave game</button>`);
+  $('#mRules').onclick = openRules;
+  $('#mLeave').onclick = confirmLeave;
+  if (canTag) $('#mTag').onclick = () => {
+    openSheet(`<h3>WHO TAGGED YOU?</h3><p style="color:var(--dim);font-size:16px;margin:0 0 4px">Use this if GPS missed it. You’ll be out.</p>
+      ${idsOf('hunter').map(id => `<button class="btn danger" data-h="${id}">${esc(nameOf(id))}</button>`).join('')}<button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
+    $('#sheet').querySelectorAll('[data-h]').forEach(b => b.onclick = () => { closeSheet(); publishCatch(myId, b.dataset.h, 'manual'); });
+  };
+  if (isHost()) $('#mEnd').onclick = () => {
+    openSheet(`<h3>END THE GAME?</h3><button class="btn danger" id="endYes">End for everyone</button><button class="btn ghost" onclick="closeSheet()">Keep playing</button>`);
+    $('#endYes').onclick = () => { closeSheet(); S.overSent = true; hostPub(x => { x.phase = 'over'; x.winner = 'ended'; x.finishedAt = Date.now(); }); };
+  };
+}
+
+/* ---------- boot ---------- */
+show('home');
+if (!window.mqtt || !window.L) $('#homeErr').textContent = 'Couldn’t load the game. Check your internet and reload.';
+</script>
+</body>
+</html>
