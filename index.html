@@ -321,7 +321,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
       <button class="btn ghost" id="rejoinBtn" hidden></button>
       <p class="err" id="homeErr"></p>
     </div>
-    <button class="link" id="rulesBtn">How to play</button>
+    <div style="display:flex;gap:18px"><button class="link" id="rulesBtn">How to play</button><button class="link" id="privBtn">Privacy</button></div>
   </div>
 </section>
 
@@ -401,8 +401,10 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 /* ============================================================
    HUNTED — real-world manhunt over live GPS
    Every phone connects to a public MQTT relay. All game messages are
-   end-to-end encrypted with a key made from the game code, and topics
-   are hashed, so only people with the code can read anything.
+   encrypted with a key made from the game code, and topics are hashed.
+   PRIVACY: GPS runs only while you're in a game with this page open.
+   Locations and pings are sent live and are NEVER stored ("retained")
+   on the relay, and are never written to the phone's storage.
    ============================================================ */
 const $ = (s, r = document) => r.querySelector(s);
 const QS = new URLSearchParams(location.search);
@@ -507,7 +509,7 @@ const Net = {
       this.waitState = wantState ? () => finish(true) : null;
       c.on('connect', () => {
         setConn('on');
-        if (!first) { Geo.publish(true); return; }
+        if (!first) { Geo.publish(true); askForPing(); return; }
         first = false;
         c.subscribe(this.base + '/#', { qos: 1 }, err => { if (err) return finish(false); if (!wantState) finish(true); });
       });
@@ -544,14 +546,16 @@ function handleMsg(sub, d) {
     G.state = d;
     if (Net.waitState) { const f = Net.waitState; Net.waitState = null; f(); }
     onState();
+  } else if (sub === 'need') {
+    if (d && d.id !== myId) answerNeed();
   } else if (p[0] === 'hello') {
     if (d) G.hellos[p[1]] = d; else delete G.hellos[p[1]];
     if (isHost()) hostSync(p[1], !d);
     if (S.screen === 'lobby') renderLobby();
   } else if (p[0] === 'loc') {
     const id = p[1];
-    if (!d) delete G.locs[id];
-    else if (id !== myId && (!G.locs[id] || d.t >= G.locs[id].t)) G.locs[id] = d;
+    if (!d) return;
+    if (id !== myId && (!G.locs[id] || d.t >= G.locs[id].t)) G.locs[id] = d;
     onLocs();
   } else if (p[0][0] === 'r') {
     const round = +p[0].slice(1); if (!round) return;
@@ -563,6 +567,7 @@ function handleMsg(sub, d) {
       if (!prev && G.state && round === G.state.round && Date.now() - d.at < 90000) announceCatch(p[2], d);
       renderGame();
     } else if (p[1] === 'ping' && d) {
+      S.pingMsgAt = Date.now();
       if (!R.ping || d.n > R.ping.n) { R.ping = d; updateMap(); renderGame(); }
     }
   }
@@ -604,10 +609,10 @@ const Geo = {
   },
   stop() { if (this.watch != null) try { navigator.geolocation.clearWatch(this.watch); } catch (e) {} this.watch = null; this.status = 'off'; },
   publish(force) {
-    if (!this.last || !Net.client) return;
+    if (this.watch == null || !this.last || !Net.client) return;   // GPS off = nothing sent
     const now = Date.now(); if (!force && now - this.lastPub < 2000) return;
     this.lastPub = now; this.last.t = now; G.locs[myId] = this.last;
-    Net.pub('loc/' + myId, { lat: +this.last.lat.toFixed(6), lng: +this.last.lng.toFixed(6), acc: this.last.acc, ft: this.last.ft, t: now }, true, 0);
+    Net.pub('loc/' + myId, { lat: +this.last.lat.toFixed(6), lng: +this.last.lng.toFixed(6), acc: this.last.acc, ft: this.last.ft, t: now }, false, 0);   // live only, not stored
   }
 };
 setInterval(() => { if (document.visibilityState === 'visible') Geo.publish(true); }, 8000);
@@ -645,7 +650,7 @@ const Wake = {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   if (S.screen === 'game') Wake.on();
-  Geo.publish(true);
+  Geo.publish(true); askForPing();
 });
 
 /* ---------------- alerts ---------------- */
@@ -676,12 +681,15 @@ function show(id) {
   if (S.screen === id) return;
   S.screen = id;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+  if (id === 'over' || id === 'home') Geo.stop();
+  else if (Geo.watch == null && G.state) Geo.start();
   if (id === 'game') { initMap(); Wake.on(); setTimeout(() => { MapV.m && MapV.m.invalidateSize(); updateMap(); }, 380); }
   else Wake.off();
 }
 
 function onState() {
   const s = G.state; if (!s) return;
+  scrub();
   if (s.kicked && s.kicked[myId]) { leave(true); $('#homeErr').textContent = 'The host removed you from that game.'; return; }
   if (S.round !== s.round) { S.round = s.round; resetRound(); }
   if (isHost() && s.phase === 'lobby') setTimeout(hostSyncAll, 0);
@@ -736,6 +744,7 @@ async function joinGame(code, name, btn) {
   Net.pub('hello/' + myId, { name, t: Date.now() }, true);
   Geo.publish(true);
   onState();
+  setTimeout(askForPing, 800);
 }
 $('#joinBtn').onclick = () => {
   const name = readName(); if (!name) return;
@@ -747,6 +756,7 @@ const sess = store.get('session');
 if (sess && sess.code) { const b = $('#rejoinBtn'); b.hidden = false; b.textContent = 'Rejoin game ' + sess.code;
   b.onclick = () => { if (!nameIn.value.trim()) nameIn.value = sess.name || ''; const n = readName(); if (n) joinGame(sess.code, n, b); }; }
 $('#rulesBtn').onclick = () => openRules();
+$('#privBtn').onclick = () => openPrivacy();
 
 function leave(silent) {
   if (G.state && Net.client) {
@@ -782,7 +792,7 @@ function renderLobby() {
   $('#codeShow').innerHTML = [...Net.code].map(c => `<span>${c}</span>`).join('');
   const gs = Geo.status, gc = $('#gpsCard');
   const gpsMsg = {
-    ok: ['📍', 'GPS locked', Geo.last ? `Accurate to about ${fmtDist(Geo.last.acc || 0)}` : ''],
+    ok: ['📍', 'GPS locked', (Geo.last ? `Accurate to about ${fmtDist(Geo.last.acc || 0)} · ` : '') + 'shared with this game only, never saved'],
     asking: ['🛰️', 'Finding you…', 'Allow location access when your phone asks'],
     off: ['🛰️', 'Location is off', 'Tap to turn on GPS for the game'],
     denied: ['🚫', 'Location blocked', 'Settings → Privacy & Security → Location Services → Safari Websites → While Using. Then tap here.'],
@@ -1062,8 +1072,23 @@ function makePing(n, at) {
   const locs = {};
   for (const id of aliveRunners()) { const l = G.locs[id]; if (l) locs[id] = { lat: l.lat, lng: l.lng, t: l.t }; }
   R.ping = { n, at, locs, by: myId };
-  Net.pub('r' + G.state.round + '/ping', R.ping, true);
+  Net.pub('r' + G.state.round + '/ping', R.ping, false);   // live only, not stored
   updateMap(); renderRoster();
+}
+
+// A phone that reconnects asks the others to resend the last ping (pings aren't stored on the relay).
+function askForPing() { if (G.state && G.state.phase === 'live') Net.pub('need', { id: myId }); }
+function answerNeed() {
+  const R = rnd(); if (!G.state || G.state.phase !== 'live' || !R.ping) return;
+  const asked = Date.now();
+  setTimeout(() => { if ((S.pingMsgAt || 0) >= asked || !G.state) return; S.pingMsgAt = Date.now(); Net.pub('r' + G.state.round + '/ping', R.ping, false); }, 150 + Math.random() * 1500);
+}
+// Erase anything an older version of HUNTED left saved on the relay for this game.
+function scrub() {
+  const s = G.state; if (!s || !Net.client) return;
+  const key = s.gid + ':' + s.round; if (S.scrubbed === key) return; S.scrubbed = key;
+  for (let r = 1; r <= s.round; r++) Net.pub('r' + r + '/ping', null, true);
+  for (const id of new Set([myId, ...Object.keys(s.players || {})])) Net.pub('loc/' + id, null, true);
 }
 
 function checkCatch(now) {
@@ -1131,6 +1156,15 @@ function rulesHtml() {
     <li><b class="c-hunt">Hunters win</b> by catching every runner. <b class="c-run">Runners win</b> if anyone lasts <b>${st.surviveMin} min</b> after the hunters are released.</li>
   </ol>
   <div class="note">📱 Keep HUNTED open on screen the whole game — iPhones pause web apps when the screen locks, which stops your location and alerts. Turn the ringer on for sounds. Watch for cars, and agree on boundaries before you start.</div>`;
+}
+function openPrivacy() {
+  openSheet(`<h3>PRIVACY</h3><ol class="rules">
+    <li><b>Only during a game.</b> GPS turns on when you tap Create or Join, and turns off when the game ends or you leave.</li>
+    <li><b>Only while it’s on screen.</b> iPhones only let websites use location while the page is visible. Switch apps or lock your phone and HUNTED can’t see you — your iPhone enforces that, not this app.</li>
+    <li><b>Only your game.</b> Your location is encrypted with the game code and passed live to the other players’ phones.</li>
+    <li><b>No history.</b> Locations are never saved — not on the relay server, not in anyone’s phone storage. Close the app and they’re gone.</li>
+    <li><b>You’re in control.</b> Settings → Privacy &amp; Security → Location Services → Safari Websites. Set it to <b>Never</b> and no website can get your location.</li>
+  </ol><button class="btn" onclick="closeSheet()">Got it</button>`);
 }
 function openRules() { openSheet(`<h3>HOW TO PLAY</h3>${rulesHtml()}<button class="btn" onclick="closeSheet()">Got it</button>`); }
 function openMenu() {
